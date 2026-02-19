@@ -42,6 +42,7 @@ class AgentConfig:
     test_command: str | None = None
     patch_output_dir: str | None = None
     metric: str | None = None
+    tune_command: str | None = None
     # Strategy manager configuration
     use_strategy_manager: bool = False
     strategy_file_path: str = ".optimization_strategies.md"
@@ -157,6 +158,7 @@ class DefaultAgent:
             base_repo_path=self.base_repo_path,
             log_fn=self._log_message,
             patch_counter=self.patch_counter,
+            tune_command=self.config.tune_command,
         )
 
         test_perf_tool = self.toolruntime._tool_table.get("test_perf")

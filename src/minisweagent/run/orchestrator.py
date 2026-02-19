@@ -158,6 +158,16 @@ def _tool_generate_tasks(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     _context_notes = ctx.get("context_notes", "")
+    _tuner_doc = ctx.get("tuner_doc", "")
+    if _tuner_doc:
+        _context_notes = (_context_notes + "\n\n" if _context_notes else "") + (
+            "## TUNING BOUNDARY (parameters controlled by external tuner)\n\n"
+            + _tuner_doc
+            + "\n\nFORBIDDEN: Do NOT generate tasks whose sole effect is changing "
+            "tuning parameters listed above. Every task MUST propose an algorithmic "
+            "or structural source-level change. After source changes, the external "
+            "tuner automatically re-searches for optimal parameters."
+        )
     kwargs: dict[str, Any] = {
         "discovery_result": ctx["discovery_result"],
         "base_task_context": _context_notes,
@@ -206,6 +216,13 @@ def _tool_generate_tasks(
             "profiling": str(pp_dir / "profile.json"),
             "round": round_num,
         }
+        if ctx.get("tune_command"):
+            metadata["tune_command"] = ctx["tune_command"]
+        if ctx.get("tuner_doc"):
+            tuner_doc_path = pp_dir / "tuner_doc.md"
+            if not tuner_doc_path.exists():
+                tuner_doc_path.write_text(ctx["tuner_doc"])
+            metadata["tuner_doc"] = str(tuner_doc_path)
         write_task_file(fpath, metadata, t.task)
         task_files.append(str(fpath))
 

@@ -310,6 +310,8 @@ def main(
     taskgen_step_limit: int | None = typer.Option(None, "--taskgen-step-limit", help="Step limit for the task-generation agent (default: GEAK_TASKGEN_STEP_LIMIT env or 150).", rich_help_panel="Advanced"),
     taskgen_cost_limit: float | None = typer.Option(None, "--taskgen-cost-limit", help="Cost limit for the task-generation agent (default: GEAK_TASKGEN_COST_LIMIT env or 25.0).", rich_help_panel="Advanced"),
     skip_profiling: bool = typer.Option(False, "--skip-profiling", help="Skip kernel profiling in full pipeline mode (use when you have a custom COMMANDMENT).", rich_help_panel="Advanced"),
+    tune_command: str | None = typer.Option(None, "--tune-command", help="Command to re-tune kernel parameters after source edits pass correctness (e.g. run gemm_moe_tune.py).", rich_help_panel="Kernel"),
+    tuner_doc: str | None = typer.Option(None, "--tuner-doc", help="Path to a file or inline text describing tuner-controlled parameters that agents must NOT modify.", rich_help_panel="Kernel"),
     from_task: Path | None = typer.Option(None, "--from-task", help="Path to a task .md file (YAML frontmatter). Populates --task, --repo, and other settings. Implies --yolo.", rich_help_panel="Task File"),
 ) -> Any:
     # fmt: on
@@ -610,6 +612,19 @@ def main(
         if taskgen_cost_limit is not None:
             os.environ["GEAK_TASKGEN_COST_LIMIT"] = str(taskgen_cost_limit)
 
+        _tuner_doc_content = None
+        if tuner_doc:
+            _td_path = Path(tuner_doc)
+            if _td_path.is_file():
+                _tuner_doc_content = _td_path.read_text()
+                console.print(f"[dim]Tuner doc loaded from: {tuner_doc}[/dim]")
+            else:
+                _tuner_doc_content = tuner_doc
+                console.print("[dim]Tuner doc: inline text[/dim]")
+
+        if tune_command:
+            console.print(f"[dim]Tune command: {tune_command[:100]}...[/dim]")
+
         preprocess_ctx = run_preprocessor(
             kernel_url,
             output_dir=_pipeline_output,
@@ -622,6 +637,8 @@ def main(
             test_command_override=test_command,
             context_notes=context_notes,
             skip_profiling=skip_profiling,
+            tune_command=tune_command,
+            tuner_doc=_tuner_doc_content,
         )
 
         model_name_resolved = model_name or config.get("model", {}).get("model_name")

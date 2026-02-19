@@ -35,6 +35,8 @@ def _task_file_to_agent_task(task_file: Path):
 
     if meta.get("test_command"):
         cfg["test_command"] = meta["test_command"]
+    if meta.get("tune_command"):
+        cfg["tune_command"] = meta["tune_command"]
 
     # Prepend pipeline context so the sub-agent has all necessary information.
     # IMPORTANT: Paths from metadata use the ORIGINAL repo root.  The parallel
@@ -92,6 +94,28 @@ def _task_file_to_agent_task(task_file: Path):
     if prof_path and Path(prof_path).exists():
         context_lines.append(f"PROFILING DATA: {prof_path}")
         context_lines.append("(Read this file for detailed per-kernel profiling metrics)")
+        context_lines.append("")
+
+    tuner_doc_path = meta.get("tuner_doc")
+    if tuner_doc_path and Path(tuner_doc_path).exists():
+        tuner_doc_text = Path(tuner_doc_path).read_text().strip()
+        context_lines.append("## TUNING BOUNDARY (parameters controlled by external tuner -- DO NOT MODIFY)")
+        context_lines.append(tuner_doc_text)
+        context_lines.append("")
+        context_lines.append(
+            "CRITICAL: The parameters listed above are searched exhaustively by an "
+            "external tuner that runs automatically after your source edits pass "
+            "correctness. Do NOT modify these parameters directly. Focus ONLY on "
+            "algorithmic and structural source-level optimizations."
+        )
+        context_lines.append("")
+
+    if meta.get("tune_command"):
+        context_lines.append(
+            "NOTE: After your source edits pass correctness, a tuning step runs "
+            "automatically to re-optimize parameters for the modified kernel. "
+            "You do NOT need to tune parameters yourself."
+        )
         context_lines.append("")
 
     body = "\n".join(context_lines) + "\n" + body

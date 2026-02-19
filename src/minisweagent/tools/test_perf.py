@@ -21,6 +21,7 @@ class TestPerfContext:
     base_repo_path: Path | None = None
     log_fn: Callable[[str], None] | None = None
     patch_counter: int = 0
+    tune_command: str | None = None
 
 
 class TestPerfTool:
@@ -118,7 +119,12 @@ class TestPerfTool:
         return ""
 
     def _run_test(self) -> tuple[str, bool, int]:
-        """Run test command and return (output, passed, returncode)."""
+        """Run test command and return (output, passed, returncode).
+
+        If correctness passes and a tune_command is configured, the tune
+        command is executed before returning so that downstream profiling
+        reflects re-tuned parameters.
+        """
         ctx = self.context
 
         if not ctx.test_command:
@@ -164,7 +170,60 @@ class TestPerfTool:
             except (ValueError, OSError):
                 returncode = 0
 
+            # Run tune_command after correctness passes
+            if returncode == 0 and ctx.tune_command:
+                tune_output, tune_ok = self._run_tune(test_env)
+                test_output += "\n" + tune_output
+                if not tune_ok:
+                    test_output += "\n[TestPerf] WARNING: tune_command failed; profiling may use stale configs."
+
             return test_output, returncode == 0, returncode
+        finally:
+            for f in [tmp_file, f"{tmp_file}.exitcode"]:
+                try:
+                    Path(f).unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+    def _run_tune(self, env: dict) -> tuple[str, bool]:
+        """Run the tune_command after correctness passes.
+
+        Returns (output, success).
+        """
+        ctx = self.context
+        tune_command = ctx.tune_command
+        self._log(f"[TestPerf] Running tune_command: {tune_command}")
+
+        with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".txt") as tmp:
+            tmp_file = tmp.name
+
+        try:
+            wrapped = f"({tune_command}) > {tmp_file} 2>&1; echo $? > {tmp_file}.exitcode"
+            subprocess.run(
+                wrapped,
+                shell=True,
+                cwd=ctx.cwd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=ctx.timeout,
+                env=env,
+            )
+
+            output = Path(tmp_file).read_text() if Path(tmp_file).exists() else ""
+            exitcode_file = Path(f"{tmp_file}.exitcode")
+            try:
+                rc = int(exitcode_file.read_text().strip()) if exitcode_file.exists() else 1
+            except (ValueError, OSError):
+                rc = 1
+
+            status = "PASSED" if rc == 0 else "FAILED"
+            self._log(f"[TestPerf] tune_command {status} (rc={rc})")
+            header = f"\n{'=' * 60}\n[Tune] Re-tuning after source edit: {status}\n{'=' * 60}\n"
+            return header + output, rc == 0
+        except subprocess.TimeoutExpired:
+            self._log("[TestPerf] tune_command timed out")
+            return "[Tune] tune_command timed out", False
         finally:
             for f in [tmp_file, f"{tmp_file}.exitcode"]:
                 try:

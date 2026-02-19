@@ -61,6 +61,7 @@ def generate_commandment(
     inner_kernel_relpath: str | None = None,
     warmup_runs: int = 1,
     profile_replays: int = 5,
+    tune_command: str | None = None,
 ) -> str:
     """Generate a valid COMMANDMENT.md and return its content.
 
@@ -78,6 +79,9 @@ def generate_commandment(
             Required when *inner_kernel* is True.
         warmup_runs: Number of warm-up invocations before profiling.
         profile_replays: Number of replay passes for ``kernel-profile``.
+        tune_command: Optional command to re-tune parameters after source
+            edits pass correctness. When provided, a ``## TUNE`` section
+            is inserted between ``## CORRECTNESS`` and ``## PROFILE``.
 
     Returns:
         The content of a valid COMMANDMENT.md as a string.
@@ -107,6 +111,7 @@ def generate_commandment(
             inner_kernel_relpath=inner_kernel_relpath,
             warmup_runs=warmup_runs,
             profile_replays=profile_replays,
+            tune_command=tune_command,
         )
     else:
         content = _generate_simple(
@@ -115,6 +120,7 @@ def generate_commandment(
             repo_root=repo_root,
             warmup_runs=warmup_runs,
             profile_replays=profile_replays,
+            tune_command=tune_command,
         )
 
     return _validate_and_fix(content)
@@ -139,6 +145,7 @@ def _generate_simple(
     repo_root: Path,
     warmup_runs: int,
     profile_replays: int,
+    tune_command: str | None = None,
 ) -> str:
     """Generate COMMANDMENT for a simple (non-inner) kernel."""
     warmup_block = _warmup_block(
@@ -146,13 +153,17 @@ def _generate_simple(
         warmup_runs,
     )
 
+    tune_section = ""
+    if tune_command:
+        tune_section = f"\n## TUNE\n{tune_command}\n"
+
     return f"""\
 ## SETUP
 printf '#!/bin/bash\\nexport PYTHONPATH=%s:{repo_root}:${{PYTHONPATH}}\\nexport HIP_VISIBLE_DEVICES=%s\\nexec python3 "$@"\\n' "${{GEAK_WORK_DIR}}" "${{GEAK_GPU_DEVICE}}" > ${{GEAK_WORK_DIR}}/run.sh && chmod +x ${{GEAK_WORK_DIR}}/run.sh
 
 ## CORRECTNESS
 ${{GEAK_WORK_DIR}}/run.sh {harness_path} --correctness
-
+{tune_section}
 ## PROFILE
 {warmup_block}
 kernel-profile "${{GEAK_WORK_DIR}}/run.sh {harness_path} --profile" --gpu-devices ${{GEAK_GPU_DEVICE}} --replays {profile_replays}
@@ -166,6 +177,7 @@ def _generate_inner_kernel(
     inner_kernel_relpath: str,
     warmup_runs: int,
     profile_replays: int,
+    tune_command: str | None = None,
 ) -> str:
     """Generate COMMANDMENT for an inner kernel (imported by a wrapper).
 
@@ -211,13 +223,17 @@ def _generate_inner_kernel(
 
     setup_block = "\n".join(setup_lines)
 
+    tune_section = ""
+    if tune_command:
+        tune_section = f"\n## TUNE\n{tune_command}\n"
+
     return f"""\
 ## SETUP
 {setup_block}
 
 ## CORRECTNESS
 ${{GEAK_WORK_DIR}}/run_harness.sh --correctness
-
+{tune_section}
 ## PROFILE
 {warmup_block}
 kernel-profile "${{GEAK_WORK_DIR}}/run_harness.sh --profile" --gpu-devices ${{GEAK_GPU_DEVICE}} --replays {profile_replays}
@@ -310,6 +326,7 @@ def main():
     parser.add_argument("--inner-kernel-relpath", default=None, help="Relative path from repo-root to inner kernel")
     parser.add_argument("--warmup-runs", type=int, default=1, help="Warm-up runs before profiling (default: 1)")
     parser.add_argument("--profile-replays", type=int, default=5, help="Profiling replay count (default: 5)")
+    parser.add_argument("--tune-command", default=None, help="Command to re-tune after source edits (inserted as ## TUNE section)")
     parser.add_argument("-o", "--output", default=None, help="Output file path (default: stdout)")
 
     args = parser.parse_args()
@@ -343,6 +360,7 @@ def main():
             inner_kernel_relpath=args.inner_kernel_relpath,
             warmup_runs=args.warmup_runs,
             profile_replays=args.profile_replays,
+            tune_command=args.tune_command,
         )
     except ValueError as e:
         print(f"ERROR: {e}", file=sys.stderr)

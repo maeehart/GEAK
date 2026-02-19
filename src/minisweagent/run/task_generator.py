@@ -66,9 +66,9 @@ optimization approach, then submit your task list as JSON via the
 
 1. **strategy_agent** (default) -- An LLM-guided agent with bash, editor,
    and profiling tools. It reads code, reasons about bottlenecks, and edits
-   the kernel directly. Best for targeted optimizations: autotune config,
-   memory access patterns, launch configuration, kernel fusion. Has access
-   to the kernel-evolve and kernel-ercs MCP tools described below.
+   the kernel directly. Best for targeted optimizations: memory access
+   patterns, computation reordering, kernel fusion, data layout changes.
+   Has access to the kernel-evolve and kernel-ercs MCP tools described below.
 
 2. **openevolve** -- An evolutionary optimizer that mutates the kernel and
    evaluates candidates automatically using COMMANDMENT.md and
@@ -115,10 +115,33 @@ optimization approach, then submit your task list as JSON via the
    - Concrete strategies from the knowledge base
    - Which agent/tool to use (and specific tool commands if applicable)
    - Expected impact
-7. Consider: OpenEvolve for parameter tuning, kernel fusion for reducing
+7. Consider: OpenEvolve for algorithmic mutations, kernel fusion for reducing
    launch overhead, elimination of unnecessary framework kernels.
 8. If prior round results are provided, do NOT re-generate tasks for
    strategies that already succeeded. Focus on what failed or was not tried.
+
+## Tuning vs Source Optimization
+
+For template-based kernels (CK-tile, Triton with autotune), there are two
+categories of changes:
+
+1. **Tuning parameters** (tile sizes, thread counts, pipeline versions,
+   vector widths, swizzle enables/disables, work-group sizes) -- These are
+   searched exhaustively by an external tuner when one is configured. Do NOT
+   generate tasks that only modify these. If a tuning boundary document is
+   provided in the context, it lists the specific parameters the tuner
+   controls.
+
+2. **Source-level optimization** (memory access patterns, prefetch
+   strategies, computation reordering, register pressure reduction, shared
+   memory layout, warp-level primitives, fusion, data layout transformations)
+   -- These change HOW the kernel computes, not WHICH configuration it uses.
+
+When an external tuner is configured:
+- FORBIDDEN: Tasks whose sole effect is changing tuning parameters.
+- REQUIRED: Every task must propose an algorithmic or structural change.
+- After source changes, the external tuner automatically re-searches for
+  optimal parameters -- agents do NOT need to tune parameters themselves.
 
 ## Output format
 

@@ -24,6 +24,8 @@ from __future__ import annotations
 import re
 
 REQUIRED_SECTIONS = {"SETUP", "CORRECTNESS", "PROFILE"}
+OPTIONAL_SECTIONS = {"TUNE"}
+ALL_KNOWN_SECTIONS = REQUIRED_SECTIONS | OPTIONAL_SECTIONS
 SHELL_BUILTINS = {"cd", "source", "export", "alias", "ulimit", "pushd", "popd"}
 
 
@@ -53,12 +55,12 @@ def validate_commandment(content: str) -> dict:
             f"COMMANDMENT.md MUST contain exactly: ## SETUP, ## CORRECTNESS, ## PROFILE."
         )
 
-    unknown = found_sections - REQUIRED_SECTIONS
+    unknown = found_sections - ALL_KNOWN_SECTIONS
     if unknown:
         errors.append(
             f"Unknown section(s): {', '.join(f'## {s}' for s in sorted(unknown))}. "
             f"These will be SILENTLY IGNORED by OpenEvolve. "
-            f"Only ## SETUP, ## CORRECTNESS, ## PROFILE are recognized."
+            f"Only ## SETUP, ## CORRECTNESS, ## TUNE, ## PROFILE are recognized."
         )
 
     # --- Check for shell built-ins in commands ---
@@ -84,7 +86,7 @@ def validate_commandment(content: str) -> dict:
 
         # Only check lines inside a recognized section (outside code blocks
         # they are free-form text; inside code blocks they are commands)
-        if not current_section or current_section not in REQUIRED_SECTIONS:
+        if not current_section or current_section not in ALL_KNOWN_SECTIONS:
             continue
 
         # Check command lines for shell built-ins
@@ -100,7 +102,7 @@ def validate_commandment(content: str) -> dict:
         # Check for inline env var prefixes (VAR=value command ...)
         # These work in a shell but NOT with os.execvpe() used by rocprofv3
         env_prefix = re.match(r"^(\w+=\S+)\s+(.+)", stripped)
-        if env_prefix and current_section in ("CORRECTNESS", "PROFILE"):
+        if env_prefix and current_section in ("CORRECTNESS", "TUNE", "PROFILE"):
             var_assign = env_prefix.group(1)
             errors.append(
                 f"Command uses inline env var prefix '{var_assign}' in "
@@ -130,7 +132,7 @@ def validate_commandment(content: str) -> dict:
         if current_section and line.strip() and not line.strip().startswith("#"):
             section_has_content[current_section] = True
 
-    for section in REQUIRED_SECTIONS:
+    for section in ALL_KNOWN_SECTIONS:
         if section in section_has_content and not section_has_content[section]:
             errors.append(
                 f"Section ## {section} exists but contains no commands. "

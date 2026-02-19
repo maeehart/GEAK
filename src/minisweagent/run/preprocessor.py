@@ -73,6 +73,8 @@ def run_preprocessor(
     test_command_override: str | None = None,
     context_notes: str | None = None,
     skip_profiling: bool = False,
+    tune_command: str | None = None,
+    tuner_doc: str | None = None,
 ) -> dict[str, Any]:
     """Run all preprocessing steps and return a context dict.
 
@@ -104,6 +106,13 @@ def run_preprocessor(
     skip_profiling:
         When True, skip kernel profiling (step 3) and baseline metrics
         (step 4). Useful when a custom COMMANDMENT is provided.
+    tune_command:
+        Command to re-tune kernel parameters after source edits pass
+        correctness. Passed through to task metadata and sub-agents.
+    tuner_doc:
+        Text describing which parameters are controlled by an external
+        tuner and must NOT be modified by agents. Injected into the
+        task generator prompt and sub-agent context.
 
     Returns
     -------
@@ -326,6 +335,11 @@ def run_preprocessor(
     if context_notes:
         ctx["context_notes"] = context_notes
 
+    if tune_command:
+        ctx["tune_command"] = tune_command
+    if tuner_doc:
+        ctx["tuner_doc"] = tuner_doc
+
     _print("")
     _print("Preprocessing complete. Artefacts written to: " + str(output_dir))
     return ctx
@@ -379,6 +393,16 @@ def main() -> None:
         action="store_true",
         help="Skip kernel profiling and baseline metrics",
     )
+    parser.add_argument(
+        "--tune-command",
+        default=None,
+        help="Command to re-tune after source edits (e.g. gemm_moe_tune.py invocation)",
+    )
+    parser.add_argument(
+        "--tuner-doc",
+        default=None,
+        help="Path to file describing tuner-controlled parameters (agents must not modify these)",
+    )
     args = parser.parse_args()
 
     try:
@@ -387,6 +411,11 @@ def main() -> None:
         console = Console()
     except ImportError:
         console = None
+
+    _tuner_doc_content = None
+    if args.tuner_doc:
+        _td_path = Path(args.tuner_doc)
+        _tuner_doc_content = _td_path.read_text() if _td_path.is_file() else args.tuner_doc
 
     ctx = run_preprocessor(
         args.url,
@@ -398,6 +427,8 @@ def main() -> None:
         test_command_override=args.test_command,
         context_notes=args.context,
         skip_profiling=args.skip_profiling,
+        tune_command=args.tune_command,
+        tuner_doc=_tuner_doc_content,
     )
 
     print(json.dumps(ctx, indent=2, default=str))

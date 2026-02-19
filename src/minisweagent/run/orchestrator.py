@@ -157,9 +157,10 @@ def _tool_generate_tasks(
     output_dir = Path(ctx["output_dir"]) / "tasks" / f"round_{round_num}"
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    _context_notes = ctx.get("context_notes", "")
     kwargs: dict[str, Any] = {
         "discovery_result": ctx["discovery_result"],
-        "base_task_context": "",
+        "base_task_context": _context_notes,
         "agent_class": ctx["agent_class"],
         "model": ctx["model"],
     }
@@ -564,6 +565,9 @@ def run_orchestrator(
     cmd = preprocess_ctx.get("commandment") or ""
     cmd_excerpt = cmd[:1500] + ("..." if len(cmd) > 1500 else "") if cmd else "Not available"
 
+    _ctx_notes = preprocess_ctx.get("context_notes", "")
+    _ctx_block = f"\n### Domain Context (from --context)\n{_ctx_notes}\n" if _ctx_notes else ""
+
     # Build messages
     instance_msg = _INSTANCE_TEMPLATE.format(
         kernel_path=str(preprocess_ctx.get("kernel_path", "N/A")),
@@ -574,7 +578,7 @@ def run_orchestrator(
         baseline_metrics_summary=bm_summary,
         profiling_summary=prof_summary,
         commandment_excerpt=cmd_excerpt,
-    )
+    ) + _ctx_block
 
     _print(
         f"[bold cyan]--- Orchestrator starting (max {max_steps} steps, {len(gpu_ids)} GPUs) ---[/bold cyan]"

@@ -304,6 +304,12 @@ def main(
     docker_image: str | None = typer.Option(None, "--docker-image", help="Docker image to use when --runtime=docker.", rich_help_panel="Advanced"),
     workspace: Path | None = typer.Option(None, "--workspace", help="Workspace directory to mount in Docker.", rich_help_panel="Advanced"),
     kernel_url: str | None = typer.Option(None, "--kernel-url", help="Kernel as URL (e.g. https://github.com/.../file.py#L106). Resolved path/line/kernel name are injected into the task.", rich_help_panel="Kernel"),
+    commandment_file: Path | None = typer.Option(None, "--commandment", help="Path to a custom COMMANDMENT.md (skips auto-generation in full pipeline mode).", rich_help_panel="Kernel"),
+    harness_file: Path | None = typer.Option(None, "--harness", help="Path to a custom test harness script (skips UnitTestAgent in full pipeline mode).", rich_help_panel="Kernel"),
+    context_notes: str | None = typer.Option(None, "--context", help="Domain context notes injected into the task generator prompt (e.g. 'Focus on large batches, L2 cache trashing is suspected').", rich_help_panel="Kernel"),
+    taskgen_step_limit: int | None = typer.Option(None, "--taskgen-step-limit", help="Step limit for the task-generation agent (default: GEAK_TASKGEN_STEP_LIMIT env or 150).", rich_help_panel="Advanced"),
+    taskgen_cost_limit: float | None = typer.Option(None, "--taskgen-cost-limit", help="Cost limit for the task-generation agent (default: GEAK_TASKGEN_COST_LIMIT env or 25.0).", rich_help_panel="Advanced"),
+    skip_profiling: bool = typer.Option(False, "--skip-profiling", help="Skip kernel profiling in full pipeline mode (use when you have a custom COMMANDMENT).", rich_help_panel="Advanced"),
     from_task: Path | None = typer.Option(None, "--from-task", help="Path to a task .md file (YAML frontmatter). Populates --task, --repo, and other settings. Implies --yolo.", rich_help_panel="Task File"),
 ) -> Any:
     # fmt: on
@@ -591,6 +597,18 @@ def main(
         console.print("[bold cyan]--- GEAK Full Pipeline Mode ---[/bold cyan]")
         console.print(f"[dim]Kernel URL: {kernel_url}[/dim]")
         console.print(f"[dim]Output dir: {_pipeline_output}[/dim]")
+        if commandment_file:
+            console.print(f"[dim]Custom COMMANDMENT: {commandment_file}[/dim]")
+        if harness_file:
+            console.print(f"[dim]Custom harness: {harness_file}[/dim]")
+        if context_notes:
+            console.print(f"[dim]Context: {context_notes[:100]}...[/dim]")
+
+        # Propagate CLI task-gen limits to env vars for the task generator
+        if taskgen_step_limit is not None:
+            os.environ["GEAK_TASKGEN_STEP_LIMIT"] = str(taskgen_step_limit)
+        if taskgen_cost_limit is not None:
+            os.environ["GEAK_TASKGEN_COST_LIMIT"] = str(taskgen_cost_limit)
 
         preprocess_ctx = run_preprocessor(
             kernel_url,
@@ -599,6 +617,11 @@ def main(
             model=model,
             model_factory=lambda: get_model(model_name, config.get("model", {})),
             console=console,
+            commandment_file=str(commandment_file) if commandment_file else None,
+            harness_file=str(harness_file) if harness_file else None,
+            test_command_override=test_command,
+            context_notes=context_notes,
+            skip_profiling=skip_profiling,
         )
 
         model_name_resolved = model_name or config.get("model", {}).get("model_name")

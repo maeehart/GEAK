@@ -402,8 +402,8 @@ def _run_task_agent(
             "base_task_context": base_task_context,
         }
 
-        tg_step_limit = int(os.getenv("GEAK_TASKGEN_STEP_LIMIT", "75"))
-        tg_cost_limit = float(os.getenv("GEAK_TASKGEN_COST_LIMIT", "10.0"))
+        tg_step_limit = int(os.getenv("GEAK_TASKGEN_STEP_LIMIT", "150"))
+        tg_cost_limit = float(os.getenv("GEAK_TASKGEN_COST_LIMIT", "25.0"))
 
         agent = DefaultAgent(
             model,

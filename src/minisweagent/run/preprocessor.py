@@ -68,6 +68,11 @@ def run_preprocessor(
     model=None,
     model_factory=None,
     console=None,
+    commandment_file: str | None = None,
+    harness_file: str | None = None,
+    test_command_override: str | None = None,
+    context_notes: str | None = None,
+    skip_profiling: bool = False,
 ) -> dict[str, Any]:
     """Run all preprocessing steps and return a context dict.
 
@@ -85,13 +90,27 @@ def run_preprocessor(
         Callable returning a new model instance (used if model is None).
     console:
         Optional Rich console for progress messages.
+    commandment_file:
+        Path to a custom COMMANDMENT.md. When provided, step 5
+        (commandment generation) is skipped and this file is used.
+    harness_file:
+        Path to a custom test harness script. When provided, step 2b
+        (UnitTestAgent) is skipped and this harness is used directly.
+    test_command_override:
+        Explicit test command. When provided, skips UnitTestAgent.
+    context_notes:
+        Domain context notes passed through to the orchestrator/task
+        generator for richer task planning.
+    skip_profiling:
+        When True, skip kernel profiling (step 3) and baseline metrics
+        (step 4). Useful when a custom COMMANDMENT is provided.
 
     Returns
     -------
     dict with keys:
         resolved, discovery, profiling, baseline_metrics,
         commandment, test_command, kernel_path, repo_root,
-        harness_path
+        harness_path, context_notes
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -148,48 +167,57 @@ def run_preprocessor(
     # harness with --correctness/--profile modes. The UnitTestAgent is a
     # full LLM agent that can read the kernel, read existing tests, run
     # them, see errors, and iterate until the harness works.
-    test_command = None
-    _uta_model = model or (model_factory() if model_factory else None)
-    if _uta_model and repo_root:
-        _print(
-            "[bold cyan]--- Step 2b: UnitTestAgent (harness creation) ---[/bold cyan]"
-            if console
-            else "--- Step 2b: UnitTestAgent (harness creation) ---"
-        )
-        try:
-            from minisweagent.agents.unit_test_agent import (
-                format_discovery_for_agent,
-                run_unit_test_agent,
-            )
-            from minisweagent.tools.discovery import DiscoveryPipeline
-
-            # Build DiscoveryResult for the agent's context
-            workspace = Path(repo_root)
-            pipeline = DiscoveryPipeline(workspace_path=workspace)
-            disc_result = pipeline.run(kernel_path=Path(kernel_path), interactive=False)
-            discovery_context = format_discovery_for_agent(disc_result)
-
-            kernel_name = Path(kernel_path).stem
-            discovery_context += (
-                "\n\nIMPORTANT: Your TEST_COMMAND must use absolute paths "
-                "to the test script (e.g., `python /absolute/path/to/test_harness.py --correctness`). "
-                "Do NOT use `cd` in the command. The profiler cannot handle compound shell commands."
-            )
-            test_command = run_unit_test_agent(
-                model=_uta_model,
-                repo=Path(repo_root),
-                kernel_name=kernel_name,
-                log_dir=output_dir,
-                discovery_context=discovery_context,
-            )
-            _print(f"  UnitTestAgent test_command: {test_command}")
-        except Exception as exc:
+    #
+    # When a custom harness or test command is provided, skip this step.
+    test_command = test_command_override
+    if harness_file:
+        _print(f"  Using custom harness: {harness_file}")
+        ctx["harness_path"] = harness_file
+        if not test_command:
+            test_command = f"python3 {harness_file} --correctness"
+    elif test_command:
+        _print(f"  Using override test command: {test_command}")
+    else:
+        _uta_model = model or (model_factory() if model_factory else None)
+        if _uta_model and repo_root:
             _print(
-                f"  [yellow]UnitTestAgent failed ({exc}), falling back to discovery[/yellow]"
+                "[bold cyan]--- Step 2b: UnitTestAgent (harness creation) ---[/bold cyan]"
                 if console
-                else f"  UnitTestAgent failed ({exc}), falling back to discovery"
+                else "--- Step 2b: UnitTestAgent (harness creation) ---"
             )
-            logger.warning("UnitTestAgent failed: %s", exc, exc_info=True)
+            try:
+                from minisweagent.agents.unit_test_agent import (
+                    format_discovery_for_agent,
+                    run_unit_test_agent,
+                )
+                from minisweagent.tools.discovery import DiscoveryPipeline
+
+                workspace = Path(repo_root)
+                pipeline = DiscoveryPipeline(workspace_path=workspace)
+                disc_result = pipeline.run(kernel_path=Path(kernel_path), interactive=False)
+                discovery_context = format_discovery_for_agent(disc_result)
+
+                kernel_name = Path(kernel_path).stem
+                discovery_context += (
+                    "\n\nIMPORTANT: Your TEST_COMMAND must use absolute paths "
+                    "to the test script (e.g., `python /absolute/path/to/test_harness.py --correctness`). "
+                    "Do NOT use `cd` in the command. The profiler cannot handle compound shell commands."
+                )
+                test_command = run_unit_test_agent(
+                    model=_uta_model,
+                    repo=Path(repo_root),
+                    kernel_name=kernel_name,
+                    log_dir=output_dir,
+                    discovery_context=discovery_context,
+                )
+                _print(f"  UnitTestAgent test_command: {test_command}")
+            except Exception as exc:
+                _print(
+                    f"  [yellow]UnitTestAgent failed ({exc}), falling back to discovery[/yellow]"
+                    if console
+                    else f"  UnitTestAgent failed ({exc}), falling back to discovery"
+                )
+                logger.warning("UnitTestAgent failed: %s", exc, exc_info=True)
 
     # Fall back to MCP discovery test command if UnitTestAgent didn't produce one
     if not test_command and tests:
@@ -206,11 +234,16 @@ def run_preprocessor(
     )
 
     profiling: dict[str, Any] | None = None
-    if test_command:
+    if skip_profiling:
+        _print("  Skipping profiling (--skip-profiling flag)")
+    elif test_command:
         from profiler_mcp.server import profile_kernel
 
-        harness = _extract_harness_path(test_command)
-        ctx["harness_path"] = harness
+        if "harness_path" not in ctx:
+            harness = _extract_harness_path(test_command)
+            ctx["harness_path"] = harness
+        else:
+            harness = ctx["harness_path"]
         profile_cmd = f"python {harness} --profile"
 
         try:
@@ -239,7 +272,9 @@ def run_preprocessor(
     )
 
     baseline_metrics: dict[str, Any] | None = None
-    if profiling and profiling.get("success", True):
+    if skip_profiling:
+        _print("  Skipping baseline metrics (--skip-profiling flag)")
+    elif profiling and profiling.get("success", True):
         try:
             from minisweagent.baseline_metrics import build_baseline_metrics
 
@@ -263,7 +298,10 @@ def run_preprocessor(
     _print("[bold cyan]--- Step 5/5: Commandment ---[/bold cyan]" if console else "--- Step 5/5: Commandment ---")
 
     commandment: str | None = None
-    if test_command:
+    if commandment_file:
+        commandment = Path(commandment_file).read_text()
+        _print(f"  Using custom COMMANDMENT from: {commandment_file}")
+    elif test_command:
         try:
             from minisweagent.tools.commandment import generate_commandment
 
@@ -283,6 +321,10 @@ def run_preprocessor(
     ctx["commandment"] = commandment
     if commandment:
         (output_dir / "COMMANDMENT.md").write_text(commandment)
+
+    # Store context notes for downstream consumption by the task generator
+    if context_notes:
+        ctx["context_notes"] = context_notes
 
     _print("")
     _print("Preprocessing complete. Artefacts written to: " + str(output_dir))
@@ -312,6 +354,31 @@ def main() -> None:
         default=0,
         help="GPU device ID for profiling (default: 0)",
     )
+    parser.add_argument(
+        "--commandment",
+        default=None,
+        help="Path to a custom COMMANDMENT.md (skips auto-generation)",
+    )
+    parser.add_argument(
+        "--harness",
+        default=None,
+        help="Path to a custom test harness script (skips UnitTestAgent)",
+    )
+    parser.add_argument(
+        "--test-command",
+        default=None,
+        help="Explicit test command (skips UnitTestAgent)",
+    )
+    parser.add_argument(
+        "--context",
+        default=None,
+        help="Domain context notes for the task generator",
+    )
+    parser.add_argument(
+        "--skip-profiling",
+        action="store_true",
+        help="Skip kernel profiling and baseline metrics",
+    )
     args = parser.parse_args()
 
     try:
@@ -321,7 +388,17 @@ def main() -> None:
     except ImportError:
         console = None
 
-    ctx = run_preprocessor(args.url, Path(args.output), gpu_id=args.gpu, console=console)
+    ctx = run_preprocessor(
+        args.url,
+        Path(args.output),
+        gpu_id=args.gpu,
+        console=console,
+        commandment_file=args.commandment,
+        harness_file=args.harness,
+        test_command_override=args.test_command,
+        context_notes=args.context,
+        skip_profiling=args.skip_profiling,
+    )
 
     print(json.dumps(ctx, indent=2, default=str))
 

@@ -110,6 +110,7 @@ def build_baseline_metrics(
     kernel_indices: list[int] | None = None,
     include_all: bool = False,
     gpu_index: int = 0,
+    preferred_kernel_pattern: str | None = None,
 ) -> dict:
     """Build a baseline_metrics dict from agent-chosen kernels.
 
@@ -121,6 +122,8 @@ def build_baseline_metrics(
         kernel_indices: Kernel indices to include (0-based).
         include_all: If True, include all kernels.
         gpu_index: Which GPU result to read.
+        preferred_kernel_pattern: Substring pattern to prefer when selecting
+            the dominant (bottleneck) kernel. Case-insensitive.
 
     Returns:
         Dict ready to be written as ``baseline_metrics.json``.
@@ -161,11 +164,23 @@ def build_baseline_metrics(
     if not selected:
         raise ValueError("No kernels selected.")
 
-    return _format_baseline(selected)
+    return _format_baseline(selected, preferred_kernel_pattern=preferred_kernel_pattern)
 
 
-def _format_baseline(selected: list[dict]) -> dict:
-    """Format selected kernel(s) into the baseline_metrics.json structure."""
+def _format_baseline(selected: list[dict], preferred_kernel_pattern: str | None = None) -> dict:
+    """Format selected kernel(s) into the baseline_metrics.json structure.
+
+    Parameters
+    ----------
+    selected:
+        List of kernel dicts to include.
+    preferred_kernel_pattern:
+        If provided, kernels whose name contains this pattern (case-insensitive)
+        are preferred as the dominant kernel over the max-duration heuristic.
+        This is useful when the profiled workload includes framework noise
+        (e.g. PyTorch ATen ops) that has higher duration than the actual
+        target kernel.
+    """
     # Sort by duration descending for consistent dominant-kernel ordering
     selected = sorted(
         selected,
@@ -174,7 +189,14 @@ def _format_baseline(selected: list[dict]) -> dict:
     )
 
     aggregated = aggregate_metrics(selected)
+
+    # Pick dominant kernel: prefer pattern match, fall back to max duration
     dominant = selected[0]
+    if preferred_kernel_pattern:
+        pat = preferred_kernel_pattern.lower()
+        matching = [k for k in selected if pat in k.get("name", "").lower()]
+        if matching:
+            dominant = matching[0]
 
     if len(selected) == 1:
         kernel_name = dominant["name"]

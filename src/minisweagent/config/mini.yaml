@@ -34,13 +34,21 @@ agent:
 
     This default workflow is for general code changes. Follow it step-by-step unless the task specifies otherwise.
 
-    1. Analyze the codebase by finding and reading relevant files
-    2. Create a script to reproduce the issue
-    3. Edit the source code to resolve the issue
-    4. Verify your fix works by running your script again
-    5. Test edge cases to ensure your fix is robust
-    6. Submit your changes and finish your work by issuing the following command: `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`.
+    1. Read only the specific files mentioned in the task (use targeted grep/view, NOT full directory listings)
+    2. Make a code change based on the task description and any provided profiling data
+    3. Use `test_perf` to verify correctness and measure performance
+    4. If correctness fails, fix and retry. If it passes, try a second optimization if time allows.
+    5. Submit your changes and finish your work by issuing the following command: `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`.
        Do not combine it with any other command. <important>After this command, you cannot continue working on this task.</important>
+
+    <important>
+    DO NOT spend more than 30% of your step budget on reading and analysis.
+    Make your FIRST code edit by step 5 at the latest. If profiling data and
+    bottleneck information are already provided in the task, skip profiling entirely.
+    DO NOT run kernel-profile or benchmark commands to establish baselines -- use
+    the data provided. DO NOT browse directory listings. Go straight to the files
+    mentioned in the task.
+    </important>
 
     ## Important Rules
 

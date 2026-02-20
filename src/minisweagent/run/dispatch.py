@@ -8,6 +8,8 @@ calls this; so does the ``run-tasks`` CLI indirectly.
 
 from __future__ import annotations
 
+import os
+
 import logging
 from pathlib import Path
 from typing import Any
@@ -26,10 +28,12 @@ def _task_file_to_agent_task(task_file: Path):
 
     agent_class = StrategyInteractiveAgent
 
+    default_agent_step_limit = int(os.getenv("GEAK_AGENT_STEP_LIMIT", "0"))
+    default_agent_cost_limit = float(os.getenv("GEAK_AGENT_COST_LIMIT", "0.0"))
     cfg: dict = {
         "save_patch": True,
-        "step_limit": 0,
-        "cost_limit": 0.0,
+        "step_limit": default_agent_step_limit,
+        "cost_limit": default_agent_cost_limit,
         "mode": "yolo",
     }
 
@@ -60,7 +64,10 @@ def _task_file_to_agent_task(task_file: Path):
     context_lines.append(
         "IMPORTANT: Only edit files within your REPO ROOT directory. "
         "Do NOT search or modify files outside of it. "
-        "The KERNEL FILE TO EDIT path above is the exact file you should optimize."
+        "The KERNEL FILE TO EDIT is the primary optimization target, "
+        "but you MAY also edit other files in the same REPO ROOT "
+        "if needed for the optimization (e.g. header files that define "
+        "data structures or descriptors used by the target kernel)."
     )
     context_lines.append("")
 

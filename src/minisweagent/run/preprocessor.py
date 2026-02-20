@@ -236,6 +236,7 @@ def run_preprocessor(
     ctx["test_command"] = test_command
     if test_command:
         _print(f"  Test command: {test_command}")
+        (output_dir / "test_command.txt").write_text(test_command)
 
     # ── 3. kernel-profile (via profiler-mcp) ─────────────────────────
     _print(

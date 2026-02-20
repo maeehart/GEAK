@@ -750,6 +750,10 @@ def main() -> None:
             tests = ctx["discovery"].get("tests", [])
             ctx["test_command"] = tests[0]["command"] if tests else None
 
+    tc_path = pp_dir / "test_command.txt"
+    if tc_path.exists():
+        ctx["test_command"] = tc_path.read_text().strip()
+
     prof_path = pp_dir / "profile.json"
     if prof_path.exists():
         ctx["profiling"] = json.loads(prof_path.read_text())
